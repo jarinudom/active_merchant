@@ -27,13 +27,28 @@ module ActiveMerchant #:nodoc:
         super
       end  
       
+      # Pass :store => true in the options to store the 
+      # payment info at Netbilling. Store the transaction
+      # number and last 5 digits of the credit card number
+      # in your application's database. 
+      # Pass a string into credit_card in the form:
+      # "CS:121212121212:55555" where 121212121212 is the
+      # transaction id and 55555 is the last 5 of the credit
+      # card number to perform a repeat transaction.
+      # Pass :store => true with a repeat transaction to
+      # update the user's personal info, and use the new
+      # transaction number and last 5 of the credit card
+      # for future transactions using the updated info.
+      
       def authorize(money, credit_card, options = {})
         post = {}
         add_amount(post, money)
         add_invoice(post, options)
-        add_credit_card(post, credit_card)        
-        add_address(post, credit_card, options)        
-        add_customer_data(post, options)
+        add_payment_source(post, credit_card, options)
+        unless credit_card.is_a?(String) && !options[:store]
+          add_address(post, credit_card, options)
+          add_customer_data(post, options)
+        end
         
         commit(:authorization, money, post)
       end
@@ -42,10 +57,12 @@ module ActiveMerchant #:nodoc:
         post = {}
         add_amount(post, money)
         add_invoice(post, options)
-        add_credit_card(post, credit_card)        
-        add_address(post, credit_card, options)        
-        add_customer_data(post, options)
-             
+        add_payment_source(post, credit_card, options)        
+        unless credit_card.is_a?(String) && !options[:store]
+          add_address(post, credit_card, options)
+          add_customer_data(post, options)
+        end
+        
         commit(:purchase, money, post)
       end                       
     
@@ -100,12 +117,17 @@ module ActiveMerchant #:nodoc:
         post[:description] = options[:description]
       end
       
-      def add_credit_card(post, credit_card)
+      def add_credit_card(post, credit_card, options={})
         post[:bill_name1] = credit_card.first_name
         post[:bill_name2] = credit_card.last_name
         post[:card_number] = credit_card.number
         post[:card_expire] = expdate(credit_card)
         post[:card_cvv2] = credit_card.verification_value
+        post[:cisp_storage] = 1 if options[:store]
+      end
+      
+      def add_cisp_id(post, cisp_id, options={})
+        post[:card_number] = cisp_id
       end
       
       def parse(body)
@@ -161,6 +183,21 @@ module ActiveMerchant #:nodoc:
         last_name = name.pop || ''
         first_name = name.join(' ')
         [ first_name, last_name ] 
+      end
+      
+      def add_payment_source(params, source, options={})
+        case determine_funding_source(source)
+        when :cisp_storage  then add_cisp_id(params, source, options)
+        when :credit_card   then add_credit_card(params, source, options)
+        end
+      end
+      
+      def determine_funding_source(source)
+        case 
+        when source.is_a?(String) then :cisp_storage
+        when CreditCard.card_companies.keys.include?(card_brand(source)) then :credit_card
+        else raise ArgumentError, "Unsupported funding source provided"
+        end
       end
     end
   end
