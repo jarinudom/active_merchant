@@ -171,6 +171,7 @@ module ActiveMerchant #:nodoc:
       
       def post_data(action, parameters = {})
         parameters[:account_id] = @options[:login]
+        parameters[:site_tag] = @options[:site_tag]
         parameters[:pay_type] = 'C'
         parameters[:tran_type] = TRANSACTIONS[action]  
         
