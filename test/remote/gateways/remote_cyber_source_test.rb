@@ -53,6 +53,28 @@ class RemoteCyberSourceTest < Test::Unit::TestCase
     assert_equal false,  response.success?
   end
 
+  def test_authorize_and_auth_reversal
+    assert auth = @gateway.authorize(@amount, @credit_card, @options)
+    assert_equal 'Successful transaction', auth.message
+    assert_success auth
+    assert auth.test?
+
+    assert auth_reversal = @gateway.auth_reversal(@amount, auth.authorization)
+    assert_equal 'Successful transaction', auth_reversal.message
+    assert_success auth_reversal
+    assert auth_reversal.test? 
+  end
+
+  def test_successful_authorization_and_failed_auth_reversal
+    assert auth = @gateway.authorize(@amount, @credit_card, @options)
+    assert_success auth
+    assert_equal 'Successful transaction', auth.message
+
+    assert auth_reversal = @gateway.auth_reversal(@amount + 10, auth.authorization)
+    assert_failure auth_reversal
+    assert_equal 'One or more fields contains invalid data', auth_reversal.message
+  end
+
   def test_successful_tax_calculation
     assert response = @gateway.calculate_tax(@credit_card, @options)
     assert_equal 'Successful transaction', response.message
@@ -126,9 +148,11 @@ class RemoteCyberSourceTest < Test::Unit::TestCase
 
   def test_invalid_login
     gateway = CyberSourceGateway.new( :login => '', :password => '' )
-    assert response = gateway.purchase(@amount, @credit_card, @options)
-    assert_match /wsse:InvalidSecurity/, response.message
-    assert_failure response
+    authentication_exception = assert_raise ActiveMerchant::ResponseError, 'Failed with 500 Internal Server Error' do
+      gateway.purchase(@amount, @credit_card, @options)
+    end
+    assert response = authentication_exception.response
+    assert_match /wsse:InvalidSecurity/, response.body
   end
   
   def test_successful_credit
@@ -136,7 +160,7 @@ class RemoteCyberSourceTest < Test::Unit::TestCase
     assert_equal 'Successful transaction', response.message
     assert_success response
     assert response.test?
-    assert response = @gateway.credit(@amount, response.authorization)
+    assert response = @gateway.refund(@amount, response.authorization)
     assert_equal 'Successful transaction', response.message
     assert_success response
     assert response.test?       
